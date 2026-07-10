@@ -40,7 +40,7 @@
 // TEST LED 
 
 #define LED_PIN                 4    
-#define LED_BLINK_INTERVAL_MS   2000   
+#define LED_BLINK_INTERVAL_MS   5000   
 
 #define OTA_HTTP_TIMEOUT_MS     15000
 #define OTA_SELFTEST_TIMEOUT_MS 10000

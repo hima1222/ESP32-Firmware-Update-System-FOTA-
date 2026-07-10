@@ -240,7 +240,7 @@ OtaResult otaCheckAndUpdate() {
     String current = otaGetCurrentVersion();
     Serial.printf("[OTA] current=%s available=%s\n", current.c_str(), meta.version.c_str());
 
-    if (compareVersions(meta.version, current) <= 0) {
+    if (meta.version == current) {
         Serial.println("[OTA] already up to date");
         return OtaResult::UP_TO_DATE;
     }
