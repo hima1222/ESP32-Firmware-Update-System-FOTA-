@@ -1,7 +1,7 @@
 /* ESP32 FOTA FIRMWARE — single-file, task-based version
    TASK LAYOUT:
-     TaskNetwork  - CORE 0  - WiFi maintenance, MQTT, HTTP heartbeat report
-     TaskOTA      - CORE 1  - Scheduler timers, button, LED, OTA update logic 
+     TaskNetwork  - CORE 0   WiFi maintenance, MQTT, HTTP heartbeat report
+     TaskOTA      - CORE 1   Scheduler timers, button, LED, OTA update logic 
 */
 
 #include <Arduino.h>
@@ -34,18 +34,18 @@
   #define DBGF(...)
 #endif
 
-//USER CONFIGURATION (edit these)
+//USER CONFIGURATION
 #define HW_ID                  "esp32-devkit-v1"
 
 #define WIFI_SSID              "Himaa"
 #define WIFI_PASSWORD          "Hima_2002"
 #define WIFI_CONNECT_TIMEOUT_MS 15000
 
-#define FOTA_BASE_URL          "https://fotaproject-production.up.railway.app"
+#define FOTA_BASE_URL          "https://backend-production-2052f.up.railway.app"
 #define FOTA_METADATA_PATH     "/api/firmware/latest"
-#define FOTA_REPORT_PATH       "/api/esp/data"
+#define FOTA_REPORT_PATH       "/api/esp/data" 
 
-#define MQTT_BROKER_URI        "152.42.249.28:1883" //"mqtt://test.mosquitto.org:1883"
+#define MQTT_BROKER_URI        "mqtt://test.mosquitto.org:1883" //"152.42.249.28:1883" 
 #define MQTT_USERNAME          ""
 #define MQTT_PASSWORD          ""
 #define MQTT_TOPIC_ALL         "devices/all/update"
@@ -56,7 +56,7 @@
 #define DAILY_CHECK_HOUR       0
 #define DAILY_CHECK_MINUTE     0
 #define INTERVAL_CHECK_MS      (3UL * 60UL * 60UL * 1000UL)   // every 3 hours
-#define POLL_INTERVAL_MS       (20UL * 1000UL)                 // no-MQTT fallback poll
+#define POLL_INTERVAL_MS       (5UL * 60UL * 1000UL)                 // no-MQTT fallback poll
 #define REPORT_INTERVAL_MS     (30UL * 1000UL)                 // dashboard heartbeat
 
 #define BUTTON_PIN             0
@@ -64,7 +64,7 @@
 #define DRD_WINDOW_MS          3000
 
 #define LED_PIN                4
-#define LED_BLINK_INTERVAL_MS  3000
+#define LED_BLINK_INTERVAL_MS  4000
 
 #define OTA_HTTP_TIMEOUT_MS    15000
 #define NVS_NAMESPACE          "fota"
@@ -75,15 +75,14 @@ String g_deviceId;
 volatile bool g_updatePending = false;   // set by MQTT/button/scheduler, read by TaskOTA
 ESP32MQTTClient mqttClient;
 
-// Health-check task handles + tuning (see SECTION 10 below)
-TaskHandle_t g_networkTaskHandle = nullptr;
+// Health-check task handles + tuning
+TaskHandle_t g_networkTaskHandle = nullptr; 
 TaskHandle_t g_otaTaskHandle = nullptr;
 #define HEALTH_CHECK_INTERVAL_MS   (60UL * 1000UL)   // how often to log heap/stack stats
 #define STACK_WARN_WORDS           256                // warn if a task's free stack drops below this (~1KB on ESP32)
 
 // DOUBLE RESET DETECTION (DRD) — manual rollback recovery
-// Press the physical reset button twice within DRD_WINDOW_MS to force a
-// rollback to the other OTA partition, regardless of self-test state.
+// Press the physical reset button twice within DRD_WINDOW_MS to force a rollback to the other OTA partition, regardless of self-test state.
 
 #define DRD_MAGIC 0xD12DE5E7
 RTC_NOINIT_ATTR uint32_t rtcDrdFlag;
@@ -108,9 +107,7 @@ bool drdCheckAndArm() {
     return false;
 }
 
-// OTA: version storage, metadata fetch, download+flash+verify,
-// self-test/rollback confirmation, manual (DRD) rollback
-
+// OTA: version storage, metadata fetch, download+flash+verify, self-test/rollback confirmation, manual (DRD) rollback
 String otaGetCurrentVersion() {
     Preferences prefs;
     prefs.begin(NVS_NAMESPACE, false);
@@ -158,8 +155,11 @@ static FirmwareMeta fetchMetadata() {
     if (code != HTTP_CODE_OK) { DBGF("[OTA] metadata fetch HTTP %d\n", code); http.end(); return meta; }
 
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, http.getStream());
+    // DeserializationError err = deserializeJson(doc, http.getStream());
+    // http.end();
+    String payload = http.getString();
     http.end();
+    DeserializationError err = deserializeJson(doc, payload);
     if (err) { DBGF("[OTA] metadata JSON parse failed: %s\n", err.c_str()); return meta; }
 
     meta.version = doc["version"] | "";
@@ -217,6 +217,18 @@ static bool downloadFlashAndVerify(const FirmwareMeta &meta) {
             Update.abort(); mbedtls_sha256_free(&sha); http.end(); return false;
         }
         written += n;
+
+        static int lastPct = -1;
+        int pct = (int)((written * 100LL) / contentLength);
+        if (pct / 10 != lastPct / 10) {
+            lastPct = pct;
+            char bar[21];
+            int filled = pct / 5;
+            for (int i = 0; i < 20; i++) bar[i] = (i < filled) ? '#' : '-';
+            bar[20] = '\0';
+            DBGF("[OTA] [%s] %d%% (%d/%d bytes)\n", bar, pct, written, contentLength);
+        }
+
     }
     http.end();
 
@@ -353,6 +365,7 @@ void sendReport() {
     doc["deviceId"] = g_deviceId;
     doc["firmware"] = otaGetCurrentVersion();
     doc["ip"] = WiFi.localIP().toString();
+    doc["topic"] = "devices/" + g_deviceId + "/update";
     String body; serializeJson(doc, body);
 
     int code = http.POST(body);
